@@ -56,9 +56,13 @@ git remote add upstream https://github.com/blender/blender.git
 git remote set-url --push upstream DISABLED
 ```
 
+Execute `git config --local core.longpaths true`.
 Depois execute Dependencies, Configure, Build e Smoke. Dependencies baixa os
 assets da árvore atual do servidor LFS oficial e as bibliotecas Windows do submódulo,
 sem mover a branch Mixer nem atualizar o código para outra versão do Blender.
+Por padrão, baixa as bibliotecas de Release, começando pelas dos geradores.
+Símbolos `.pdb` e os principais pacotes de depuração ficam de fora. Para preparar também
+Debug, execute Dependencies com `-IncludeDebugLibraries`; esse download é bem maior.
 Os dados LFS de `tests/**` são excluídos desse download inicial. Antes de executar
 suítes que dependem deles, baixe-os explicitamente do mesmo endpoint oficial.
 

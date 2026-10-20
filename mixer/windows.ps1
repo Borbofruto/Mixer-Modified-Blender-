@@ -6,7 +6,8 @@ param(
     [ValidatePattern('^[M-Zm-z]$')]
     [string]$Drive = 'M',
     [ValidateRange(1, 64)]
-    [int]$Jobs = 2
+    [int]$Jobs = 2,
+    [switch]$IncludeDebugLibraries
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -45,7 +46,13 @@ try {
             } finally {
                 $env:GIT_LFS_SKIP_SMUDGE = $oldSmudge
             }
-            Invoke-Checked 'git' @('-C', 'lib/windows_x64', 'lfs', 'pull')
+            # Primeiro os geradores; depois as bibliotecas da configuracao Release.
+            $releaseExcludes = '--exclude=llvm/debug/**,*.pdb,*_d.*,*_debug.*'
+            Invoke-Checked 'git' @('-C', 'lib/windows_x64', 'lfs', 'pull', '--include=tbb/**,python/**,pthreads/**,fmt/**,OpenImageIO/**,openVDB/**', $releaseExcludes)
+            Invoke-Checked 'git' @('-C', 'lib/windows_x64', 'lfs', 'pull', $releaseExcludes)
+            if ($IncludeDebugLibraries) {
+                Invoke-Checked 'git' @('-C', 'lib/windows_x64', 'lfs', 'pull', '--include=', '--exclude=')
+            }
         } else {
             $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
             if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio Installer/vswhere nao encontrado.' }
