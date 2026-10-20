@@ -52,10 +52,19 @@ namespace ed::space_node {
 
 void tree_update(const bContext *C);
 
-float grid_size_get();
+/** Grid spacing in view coordinates, including UI scale. */
+float grid_size_get(const SpaceNode &snode);
+
+/** Inspection uses stable identifiers, never a socket pointer retained across edits. */
+void node_socket_inspection_set(SpaceNode &snode, const bNodeSocket *socket);
+bNodeSocket *node_socket_inspection_get(const SpaceNode &snode);
+float2 node_socket_inspection_location_get(const SpaceNode &snode);
+
+/** Temporary guides in view coordinates, cleared at transform completion/cancellation. */
+void node_alignment_guides_set(SpaceNode &snode, std::optional<float> x, std::optional<float> y);
 
 /* Compute the nearest 1D coordinate corresponding to the nearest grid in node editors. */
-float nearest_node_grid_coord(float co);
+float nearest_node_grid_coord(float co, const SpaceNode *snode = nullptr);
 
 /** Update the active node tree based on the context. */
 void snode_set_context(const bContext &C);

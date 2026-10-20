@@ -841,6 +841,49 @@ class NODE_PT_active_node_generic(Panel):
             layout.prop(node, "warning_propagation", text="Propagate")
 
 
+class NODE_PT_connection_coordinates(Panel):
+    bl_space_type = 'NODE_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = "Node"
+    bl_label = "Connection Coordinates"
+
+    def draw(self, context):
+        layout = self.layout
+        snode = context.space_data
+        socket = snode.inspected_socket
+        if socket is None:
+            layout.label(text="Click a socket or reroute point")
+            return
+        is_point = socket.node.bl_idname == 'NodeReroute'
+        layout.label(text="Reroute Point" if is_point else socket.name)
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.prop(snode, "inspected_socket_location", text="Position")
+
+
+class NODE_PT_layout_tools(Panel):
+    bl_space_type = 'NODE_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = "Node"
+    bl_label = "Layout"
+
+    def draw(self, context):
+        layout = self.layout
+        snode = context.space_data
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.prop(snode, "node_grid_spacing", text="Grid Spacing")
+        layout.prop(snode, "use_socket_grid_layout", text="Socket Grid")
+        layout.prop(snode, "use_node_alignment_guides", text="Smart Guides")
+        layout.prop(context.tool_settings, "use_snap_node", text="Snap")
+        row = layout.row()
+        row.operator_context = 'EXEC_REGION_WIN'
+        props = row.operator("transform.translate", text="Snap Selected to Grid")
+        props.value = (0.0, 0.0, 0.0)
+        props.snap = True
+        props.snap_elements = {'INCREMENT'}
+
+
 class NODE_PT_active_node_properties(Panel):
     bl_space_type = 'NODE_EDITOR'
     bl_region_type = 'UI'
@@ -1250,6 +1293,8 @@ classes = (
     NODE_PT_quality,
     NODE_PT_annotation,
     NODE_PT_overlay,
+    NODE_PT_connection_coordinates,
+    NODE_PT_layout_tools,
     NODE_PT_active_node_properties,
     NODE_PT_active_node_custom_properties,
     NODE_PT_gizmo_display,

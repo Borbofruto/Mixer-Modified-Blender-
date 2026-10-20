@@ -23,6 +23,8 @@
 #include "BKE_node_runtime.hh"
 
 #include "ED_node.hh"
+#include "ED_node_layout.hh"
+#include "ED_numinput.hh"
 
 #include "UI_view2d.hh"
 
@@ -34,6 +36,11 @@
 
 namespace blender::ed::transform {
 
+struct NodeAlignmentSource {
+  int data_index;
+  float2 initial_position;
+};
+
 struct TransCustomDataNode {
   ui::View2DEdgePanData edgepan_data{};
 
@@ -41,6 +48,9 @@ struct TransCustomDataNode {
   rctf viewrect_prev{};
 
   bool is_new_node = false;
+  Vector<NodeAlignmentSource> alignment_sources;
+  Vector<float> alignment_targets_x;
+  Vector<float> alignment_targets_y;
 
   Map<bNode *, bNode *> old_parent_by_detached_node;
 };
@@ -145,6 +155,63 @@ static VectorSet<bNode *> get_transformed_nodes(bNodeTree &node_tree)
   return nodes;
 }
 
+/** Bounds and sockets share view coordinates, including UI scaling. */
+static Vector<float2> node_alignment_anchors(const bNode &node)
+{
+  Vector<float2> anchors;
+  if (node.is_reroute()) {
+    anchors.append(float2(node.location) * UI_SCALE_FAC);
+    return anchors;
+  }
+  const rctf &bounds = node.runtime->draw_bounds;
+  anchors.append(float2(bounds.xmin, bounds.ymin));
+  anchors.append(float2(bounds.xmax, bounds.ymax));
+  anchors.append(float2(BLI_rctf_cent_x(&bounds), BLI_rctf_cent_y(&bounds)));
+  for (const bNodeSocket *socket : node.input_sockets()) {
+    if (socket->is_icon_visible()) {
+      anchors.append(socket->runtime->location);
+    }
+  }
+  for (const bNodeSocket *socket : node.output_sockets()) {
+    if (socket->is_icon_visible()) {
+      anchors.append(socket->runtime->location);
+    }
+  }
+  return anchors;
+}
+
+static void node_alignment_cache_init(const SpaceNode &snode,
+                                      const ARegion &region,
+                                      const VectorSet<bNode *> &moving_nodes,
+                                      TransCustomDataNode &data)
+{
+  for (const int i : moving_nodes.index_range()) {
+    for (const float2 position : node_alignment_anchors(*moving_nodes[i])) {
+      data.alignment_sources.append({i, position});
+    }
+  }
+  for (const bNode *node : snode.edittree->all_nodes()) {
+    /* Frames may resize when a selected descendant moves; they are unstable targets. */
+    if (moving_nodes.contains(const_cast<bNode *>(node)) || node->is_frame() ||
+        (node->flag & NODE_SELECT) || is_node_parent_select(node))
+    {
+      continue;
+    }
+    const rctf &bounds = node->runtime->draw_bounds;
+    if (bounds.xmax < region.v2d.cur.xmin || bounds.xmin > region.v2d.cur.xmax ||
+        bounds.ymax < region.v2d.cur.ymin || bounds.ymin > region.v2d.cur.ymax)
+    {
+      continue;
+    }
+    for (const float2 position : node_alignment_anchors(*node)) {
+      data.alignment_targets_x.append(position.x);
+      data.alignment_targets_y.append(position.y);
+    }
+  }
+  std::sort(data.alignment_targets_x.begin(), data.alignment_targets_x.end());
+  std::sort(data.alignment_targets_y.begin(), data.alignment_targets_y.end());
+}
+
 static void createTransNodeData(bContext * /*C*/, TransInfo *t)
 {
   SpaceNode *snode = static_cast<SpaceNode *>(t->area->spacedata.first);
@@ -173,7 +240,11 @@ static void createTransNodeData(bContext * /*C*/, TransInfo *t)
   }
 
   t->custom.type.data = customdata;
-  t->custom.type.free_cb = [](TransInfo *, TransDataContainer *, TransCustomData *custom_data) {
+  t->custom.type.free_cb = [](TransInfo *t, TransDataContainer *, TransCustomData *custom_data) {
+    if (t->area && t->area->spacetype == SPACE_NODE) {
+      SpaceNode &snode = *static_cast<SpaceNode *>(t->area->spacedata.first);
+      space_node::node_alignment_guides_set(snode, std::nullopt, std::nullopt);
+    }
     TransCustomDataNode *data = static_cast<TransCustomDataNode *>(custom_data->data);
     MEM_delete(data);
     custom_data->data = nullptr;
@@ -196,6 +267,9 @@ static void createTransNodeData(bContext * /*C*/, TransInfo *t)
   for (const int i : nodes.index_range()) {
     create_transform_data_for_node(tc->data[i], tc->data_2d[i], *nodes[i], UI_SCALE_FAC);
   }
+  if ((t->flag & T_MODAL) && t->region && (snode->node_layout_flag & SNODE_LAYOUT_SMART_GUIDES)) {
+    node_alignment_cache_init(*snode, *t->region, nodes, *customdata);
+  }
 }
 
 /** \} */
@@ -206,8 +280,8 @@ static void createTransNodeData(bContext * /*C*/, TransInfo *t)
 
 static void node_snap_grid_apply(TransInfo *t)
 {
-  if (!(transform_snap_is_active(t) &&
-        (t->tsnap.mode & (SCE_SNAP_TO_INCREMENT | SCE_SNAP_TO_GRID))))
+  if (t->state == TRANS_CANCEL || !(transform_snap_is_active(t) &&
+                                    (t->tsnap.mode & (SCE_SNAP_TO_INCREMENT | SCE_SNAP_TO_GRID))))
   {
     return;
   }
@@ -222,7 +296,34 @@ static void node_snap_grid_apply(TransInfo *t)
     return;
   }
 
+  const SpaceNode &snode = *static_cast<const SpaceNode *>(t->area->spacedata.first);
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
+    if ((t->flag & T_MODAL) && (snode.node_layout_flag & SNODE_LAYOUT_SMART_GUIDES) &&
+        tc->data_len > 1)
+    {
+      /* A shared grid correction preserves the layout of a dragged multi-selection. */
+      const TransData *reference = nullptr;
+      for (const TransData &td : Span(tc->data, tc->data_len)) {
+        if (!(td.flag & TD_SKIP)) {
+          reference = &td;
+          break;
+        }
+      }
+      if (reference) {
+        const float2 initial = reference->iloc;
+        const float2 target = reference->loc;
+        const float2 snapped = math::round(initial / grid_size) * grid_size +
+                               math::round((target - initial) / grid_size) * grid_size;
+        const float2 correction = snapped - target;
+        for (TransData &td : MutableSpan(tc->data, tc->data_len)) {
+          if (!(td.flag & TD_SKIP)) {
+            td.loc[0] += correction.x;
+            td.loc[1] += correction.y;
+          }
+        }
+      }
+      continue;
+    }
     for (const int i : IndexRange(tc->data_len)) {
       TransData &td = tc->data[i];
       if (td.flag & TD_SKIP) {
@@ -250,6 +351,58 @@ static void node_snap_grid_apply(TransInfo *t)
       copy_v2_v2(td.loc, snapped_target_location);
     }
   }
+}
+
+static void node_alignment_apply(TransInfo *t, const float2 &view_offset)
+{
+  SpaceNode &snode = *static_cast<SpaceNode *>(t->area->spacedata.first);
+  space_node::node_alignment_guides_set(snode, std::nullopt, std::nullopt);
+  if (!(snode.node_layout_flag & SNODE_LAYOUT_SMART_GUIDES) || !t->region ||
+      !(t->flag & T_MODAL) || t->state == TRANS_CANCEL || t->mode != TFM_TRANSLATION ||
+      hasNumInput(&t->num))
+  {
+    return;
+  }
+  const auto &data = *static_cast<const TransCustomDataNode *>(t->custom.type.data);
+  TransDataContainer *tc = TRANS_DATA_CONTAINER_FIRST_SINGLE(t);
+  const bool snap = transform_snap_is_active(t);
+  const float2 scale(ui::view2d_scale_get_x(&t->region->v2d),
+                     ui::view2d_scale_get_y(&t->region->v2d));
+  float2 correction(0.0f);
+  std::optional<float> guides[2];
+  for (int axis = 0; axis < 2; axis++) {
+    if ((t->con.mode & CON_APPLY) && !(t->con.mode & (CON_AXIS0 << axis))) {
+      continue;
+    }
+    const Vector<float> &targets = axis == 0 ? data.alignment_targets_x : data.alignment_targets_y;
+    /* Screen-space tolerance stays stable under zoom; without snap only show exact alignment. */
+    float best_distance = (snap ? 8.0f : 0.75f) / std::max(std::abs(scale[axis]), 1e-5f);
+    for (const NodeAlignmentSource &source : data.alignment_sources) {
+      const TransData &td = tc->data[source.data_index];
+      if (td.flag & TD_SKIP) {
+        continue;
+      }
+      const float coordinate = source.initial_position[axis] + td.loc[axis] - td.iloc[axis] +
+                               view_offset[axis];
+      const std::optional<float> target = space_node::layout::nearest_axis_coordinate(
+          targets.begin(), targets.end(), coordinate);
+      if (target && std::abs(*target - coordinate) < best_distance) {
+        best_distance = std::abs(*target - coordinate);
+        correction[axis] = *target - coordinate;
+        guides[axis] = *target;
+      }
+    }
+  }
+  if (snap) {
+    /* One correction for the whole selection; never pull selected nodes apart. */
+    for (TransData &td : MutableSpan(tc->data, tc->data_len)) {
+      if (!(td.flag & TD_SKIP)) {
+        td.loc[0] += correction.x;
+        td.loc[1] += correction.y;
+      }
+    }
+  }
+  space_node::node_alignment_guides_set(snode, guides[0], guides[1]);
 }
 
 static void move_child_nodes(bNode &node, const float2 &delta)
@@ -335,6 +488,7 @@ static void flushTransNodes(TransInfo *t)
 
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
     node_snap_grid_apply(t);
+    node_alignment_apply(t, float2(offset));
 
     /* Flush to 2d vector from internally used 3d vector. */
     for (int i = 0; i < tc->data_len; i++) {
@@ -381,6 +535,7 @@ static void special_aftertrans_update__node(bContext *C, TransInfo *t)
   const TransCustomDataNode &customdata = *static_cast<TransCustomDataNode *>(t->custom.type.data);
 
   const bool canceled = (t->state == TRANS_CANCEL);
+  space_node::node_alignment_guides_set(*snode, std::nullopt, std::nullopt);
 
   if (canceled) {
     for (auto &&[node, parent] : customdata.old_parent_by_detached_node.items()) {

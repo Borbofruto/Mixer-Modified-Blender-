@@ -597,6 +597,55 @@ static void handle_group_output_node_selection(bNodeTree &tree,
   activate_interface_socket(tree, io_socket);
 }
 
+void node_socket_inspection_set(SpaceNode &snode, const bNodeSocket *socket)
+{
+  if (!socket || !snode.edittree) {
+    snode.runtime->inspected_tree_uid = 0;
+    snode.runtime->inspected_socket_identifier.clear();
+    return;
+  }
+  snode.runtime->inspected_tree_uid = snode.edittree->id.session_uid;
+  snode.runtime->inspected_node_id = socket->owner_node().identifier;
+  snode.runtime->inspected_socket_identifier = socket->identifier;
+  snode.runtime->inspected_socket_direction = socket->in_out;
+}
+
+bNodeSocket *node_socket_inspection_get(const SpaceNode &snode)
+{
+  if (!snode.runtime || !snode.edittree || snode.runtime->inspected_tree_uid == 0 ||
+      snode.runtime->inspected_tree_uid != snode.edittree->id.session_uid)
+  {
+    return nullptr;
+  }
+  snode.edittree->ensure_topology_cache();
+  bNode *node = snode.edittree->node_by_id(snode.runtime->inspected_node_id);
+  if (!node) {
+    return nullptr;
+  }
+  const Span<bNodeSocket *> sockets = snode.runtime->inspected_socket_direction == SOCK_IN ?
+                                          node->input_sockets() :
+                                          node->output_sockets();
+  for (bNodeSocket *socket : sockets) {
+    if (socket->identifier == snode.runtime->inspected_socket_identifier && socket->is_visible()) {
+      return socket;
+    }
+  }
+  return nullptr;
+}
+
+float2 node_socket_inspection_location_get(const SpaceNode &snode)
+{
+  const bNodeSocket *socket = node_socket_inspection_get(snode);
+  if (!socket) {
+    return float2(0.0f);
+  }
+  /* Reroutes are points, so their origin is their connection coordinate. */
+  if (socket->owner_node().is_reroute()) {
+    return float2(socket->owner_node().location);
+  }
+  return socket->runtime->location / UI_SCALE_FAC;
+}
+
 static bool node_mouse_select(bContext *C,
                               wmOperator *op,
                               const int2 mval,
@@ -622,6 +671,14 @@ static bool node_mouse_select(bContext *C,
   /* Get mouse coordinates in view2d space. */
   float2 cursor;
   ui::view2d_region_to_view(&region.v2d, mval.x, mval.y, &cursor.x, &cursor.y);
+
+  /* Inspect ordinary clicks without changing socket selection used by link operators. */
+  bNodeSocket *inspected_socket = node_find_indicated_socket(snode, region, cursor, SOCK_OUT);
+  if (!inspected_socket) {
+    inspected_socket = node_find_indicated_socket(snode, region, cursor, SOCK_IN);
+  }
+  node_socket_inspection_set(snode, inspected_socket);
+  WM_event_add_notifier(C, NC_SPACE | ND_SPACE_NODE, nullptr);
 
   /* First do socket selection, these generally overlap with nodes. */
   if (socket_select) {
@@ -682,7 +739,8 @@ static bool node_mouse_select(bContext *C,
   if (!sock) {
 
     /* Find the closest visible node. */
-    node = node_under_mouse_get(snode, cursor);
+    node = inspected_socket ? &inspected_socket->owner_node() :
+                              node_under_mouse_get(snode, cursor);
     found = (node != nullptr);
     node_was_selected = node && (node->flag & SELECT);
 

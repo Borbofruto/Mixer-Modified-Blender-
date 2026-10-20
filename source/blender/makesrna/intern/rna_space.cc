@@ -20,6 +20,7 @@
 
 #include "ED_asset.hh"
 #include "ED_buttons.hh"
+#include "ED_node_layout.hh"
 #include "ED_spreadsheet.hh"
 #include "ED_userpref.hh"
 
@@ -2971,6 +2972,27 @@ static bool rna_SpaceNodeEditor_tree_type_poll(void *Cv, bke::bNodeTreeType *typ
   else {
     return true;
   }
+}
+
+static float rna_SpaceNodeEditor_grid_spacing_get(PointerRNA *ptr)
+{
+  return ed::space_node::layout::grid_spacing(ptr->data_as<SpaceNode>()->node_grid_spacing);
+}
+
+static PointerRNA rna_SpaceNodeEditor_inspected_socket_get(PointerRNA *ptr)
+{
+  SpaceNode &snode = *ptr->data_as<SpaceNode>();
+  bNodeSocket *socket = ed::space_node::node_socket_inspection_get(snode);
+  return RNA_pointer_create_discrete(
+      snode.edittree ? &snode.edittree->id : nullptr, RNA_NodeSocket, socket);
+}
+
+static void rna_SpaceNodeEditor_inspected_socket_location_get(PointerRNA *ptr, float value[2])
+{
+  const float2 location = ed::space_node::node_socket_inspection_location_get(
+      *ptr->data_as<SpaceNode>());
+  value[0] = location.x;
+  value[1] = location.y;
 }
 
 static void rna_SpaceNodeEditor_cursor_location_get(PointerRNA *ptr, float value[2])
@@ -7208,7 +7230,7 @@ static void rna_def_space_dopesheet(BlenderRNA *brna)
   RNA_def_property_boolean_sdna(prop, nullptr, "flag", SACTION_SHOW_INTERPOLATION);
   RNA_def_property_ui_text(prop,
                            "Show Handles and Interpolation",
-                           "Display keyframe handle types and non-Bézier interpolation modes");
+                           "Display keyframe handle types and non-BÃ©zier interpolation modes");
   RNA_def_property_update(prop, NC_SPACE | ND_SPACE_DOPESHEET, nullptr);
 
   prop = RNA_def_property(srna, "show_extremes", PROP_BOOLEAN, PROP_NONE);
@@ -7356,7 +7378,7 @@ static void rna_def_space_graph(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "show_handles", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_negative_sdna(prop, nullptr, "flag", SIPO_NOHANDLES);
-  RNA_def_property_ui_text(prop, "Show Handles", "Show handles of Bézier control points");
+  RNA_def_property_ui_text(prop, "Show Handles", "Show handles of BÃ©zier control points");
   RNA_def_property_update(prop, NC_SPACE | ND_SPACE_GRAPH, nullptr);
 
   prop = RNA_def_property(srna, "use_auto_lock_translation_axis", PROP_BOOLEAN, PROP_NONE);
@@ -8631,6 +8653,45 @@ static void rna_def_space_node(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop, "Auto-offset Direction", "Direction to offset nodes on insertion");
   RNA_def_property_update(prop, NC_SPACE | ND_SPACE_NODE_VIEW, nullptr);
+
+  prop = RNA_def_property(srna, "node_grid_spacing", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_float_sdna(prop, nullptr, "node_grid_spacing");
+  RNA_def_property_float_funcs(prop, "rna_SpaceNodeEditor_grid_spacing_get", nullptr, nullptr);
+  RNA_def_property_float_default(prop, ed::space_node::layout::default_grid_spacing);
+  RNA_def_property_range(
+      prop, ed::space_node::layout::min_grid_spacing, ed::space_node::layout::max_grid_spacing);
+  RNA_def_property_ui_text(prop, "Grid Spacing", "Grid and snap spacing in node coordinates");
+  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "use_socket_grid_layout", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "node_layout_flag", SNODE_LAYOUT_SOCKET_GRID);
+  RNA_def_property_ui_text(
+      prop,
+      "Socket Grid Layout",
+      "Pad expanded node layouts so socket offsets and widths follow the grid");
+  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "use_node_alignment_guides", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "node_layout_flag", SNODE_LAYOUT_SMART_GUIDES);
+  RNA_def_property_ui_text(
+      prop, "Smart Guides", "Align with visible node edges, centers and sockets while moving");
+  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_NODE, nullptr);
+
+  prop = RNA_def_property(srna, "inspected_socket", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "NodeSocket");
+  RNA_def_property_pointer_funcs(
+      prop, "rna_SpaceNodeEditor_inspected_socket_get", nullptr, nullptr, nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Inspected Socket", "Socket or reroute point last clicked in this editor");
+
+  prop = RNA_def_property(srna, "inspected_socket_location", PROP_FLOAT, PROP_XYZ);
+  RNA_def_property_array(prop, 2);
+  RNA_def_property_float_funcs(
+      prop, "rna_SpaceNodeEditor_inspected_socket_location_get", nullptr, nullptr);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Coordinates", "Connection coordinates in the current node tree, independent of zoom");
 
   /* Gizmo Toggles. */
   prop = RNA_def_property(srna, "show_gizmo", PROP_BOOLEAN, PROP_NONE);

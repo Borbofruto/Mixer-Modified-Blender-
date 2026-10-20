@@ -1740,6 +1740,8 @@ static wmOperatorStatus node_link_invoke(bContext *C, wmOperator *op, const wmEv
   if (!nldrag) {
     return OPERATOR_CANCELLED | OPERATOR_PASS_THROUGH;
   }
+  node_socket_inspection_set(snode, nldrag->start_socket);
+  WM_event_add_notifier(C, NC_SPACE | ND_SPACE_NODE, nullptr);
 
   view2d_edge_pan_operator_init(C, &nldrag->pan_data, op);
 

@@ -288,6 +288,13 @@ struct SpaceNode_Runtime {
 
   std::optional<int> frame_identifier_to_highlight;
 
+  unsigned int inspected_tree_uid = 0;
+  int inspected_node_id = 0;
+  std::string inspected_socket_identifier;
+  eNodeSocketInOut inspected_socket_direction = SOCK_IN;
+  std::optional<float> alignment_guide_x;
+  std::optional<float> alignment_guide_y;
+
   /** Temporary data for modal linking operator. */
   std::unique_ptr<bNodeLinkDrag> linkdrag;
 
@@ -334,7 +341,9 @@ ENUM_OPERATORS(NodeResizeDirection);
 #define NODE_DYS (U.widget_unit / 2)
 #define NODE_DY U.widget_unit
 #define NODE_ITEM_SPACING_Y (0.1f * U.widget_unit)
-#define NODE_WIDTH(node) (node.width * UI_SCALE_FAC)
+#define NODE_WIDTH(node) \
+  ((node).runtime->grid_layout_width > 0.0f ? (node).runtime->grid_layout_width : \
+                                              (node).width * UI_SCALE_FAC)
 #define NODE_HEIGHT(node) (node.height * UI_SCALE_FAC)
 #define NODE_MARGIN_X (1.2f * U.widget_unit)
 #define NODE_SOCKSIZE (0.25f * U.widget_unit)

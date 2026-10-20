@@ -903,6 +903,11 @@ struct SpaceNode {
 
   SpaceNodeOverlay overlay;
 
+  /** Grid spacing in node coordinates. Zero preserves the legacy default for old files. */
+  float node_grid_spacing = 0.0f;
+  /** Optional layout tools; see eSpaceNodeLayout_Flag. */
+  int node_layout_flag = 0;
+
   ed::space_node::SpaceNode_Runtime *runtime = nullptr;
 };
 

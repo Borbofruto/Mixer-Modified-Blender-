@@ -370,6 +370,9 @@ class bNodeRuntime : NonCopyable, NonMovable {
   /** Calculated bounding box of node in the view space of the node editor (including UI scale). */
   rctf draw_bounds{};
 
+  /** Optional expanded-node width padded to the editor grid, in view coordinates. */
+  float grid_layout_width = 0.0f;
+
   /** Used at runtime when going through the tree. Initialize before use. */
   short tmp_flag = 0;
 

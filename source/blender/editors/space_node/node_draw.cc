@@ -78,6 +78,7 @@
 
 #include "ED_gpencil_legacy.hh"
 #include "ED_node.hh"
+#include "ED_node_layout.hh"
 #include "ED_node_preview.hh"
 #include "ED_screen.hh"
 #include "ED_space_api.hh"
@@ -179,9 +180,17 @@ struct TreeDrawContext {
   }
 };
 
-float grid_size_get()
+float grid_size_get(const SpaceNode &snode)
 {
-  return NODE_GRID_STEP_SIZE;
+  return layout::grid_spacing(snode.node_grid_spacing) * UI_SCALE_FAC;
+}
+
+void node_alignment_guides_set(SpaceNode &snode,
+                               const std::optional<float> x,
+                               const std::optional<float> y)
+{
+  snode.runtime->alignment_guide_x = x;
+  snode.runtime->alignment_guide_y = y;
 }
 
 void tree_update(const bContext *C)
@@ -485,7 +494,7 @@ static bool node_update_basis_socket(TreeDrawContext &tree_draw_ctx,
     return false;
   }
 
-  const int topy = locy;
+  int topy = locy;
 
   /* Add the half the height of a multi-input socket to cursor Y
    * to account for the increased height of the taller sockets. */
@@ -497,6 +506,17 @@ static bool node_update_basis_socket(TreeDrawContext &tree_draw_ctx,
                                                   NODE_MULTI_INPUT_LINK_GAP :
                                               0.0f;
   locy -= multi_input_socket_offset * 0.5f;
+
+  const SpaceNode &snode = *CTX_wm_space_node(&C);
+  const bool socket_grid = snode.node_layout_flag & SNODE_LAYOUT_SOCKET_GRID;
+  const float2 node_origin = node_to_view(node.location);
+  const float socket_y = socket_grid ? layout::socket_row_y(
+                                           locy, node_origin.y, grid_size_get(snode), NODE_DYS) :
+                                       round(locy - NODE_DYS);
+  if (socket_grid) {
+    locy = int(std::round(socket_y + NODE_DYS));
+    topy = locy;
+  }
 
   ui::Layout &layout = ui::block_layout(&block,
                                         ui::LayoutDirection::Vertical,
@@ -543,12 +563,12 @@ static bool node_update_basis_socket(TreeDrawContext &tree_draw_ctx,
 
   if (input_socket) {
     /* Round the socket location to stop it from jiggling. */
-    input_socket->runtime->location = float2(round(locx), round(locy - NODE_DYS));
+    input_socket->runtime->location = float2(socket_grid ? node_origin.x : round(locx), socket_y);
   }
   if (output_socket) {
     /* Round the socket location to stop it from jiggling. */
-    output_socket->runtime->location = float2(round(locx + NODE_WIDTH(node)),
-                                              round(locy - NODE_DYS));
+    output_socket->runtime->location = float2(
+        socket_grid ? node_origin.x + NODE_WIDTH(node) : round(locx + NODE_WIDTH(node)), socket_y);
   }
 
   /* Prioritize tooltip for inputs if available. The tooltip for the output is still accessible
@@ -1189,6 +1209,14 @@ static void node_update_basis_from_declaration(TreeDrawContext &tree_draw_ctx,
             const nodes::PanelDeclaration &node_decl = *item.decl;
             bke::bNodePanelRuntime &panel_runtime = node.runtime->panels[node_decl.index];
             const float panel_header_height = NODE_DYS;
+            const SpaceNode &snode = *CTX_wm_space_node(&C);
+            if (snode.node_layout_flag & SNODE_LAYOUT_SOCKET_GRID) {
+              const float center = layout::socket_row_y(locy,
+                                                        node_to_view(node.location).y,
+                                                        grid_size_get(snode),
+                                                        panel_header_height / 2);
+              locy = int(std::round(center + panel_header_height / 2));
+            }
             locy -= panel_header_height / 2;
             panel_runtime.header_center_y = locy;
             locy -= panel_header_height / 2;
@@ -1310,6 +1338,27 @@ static void node_update_basis(const bContext &C,
   node.runtime->draw_bounds.xmax = loc.x + NODE_WIDTH(node);
   node.runtime->draw_bounds.ymax = loc.y;
   node.runtime->draw_bounds.ymin = min_ff(dy, loc.y - 2 * NODE_DY);
+
+  const SpaceNode &snode = *CTX_wm_space_node(&C);
+  if (snode.node_layout_flag & SNODE_LAYOUT_SOCKET_GRID) {
+    const float2 origin = node_to_view(node.location);
+    const float step = grid_size_get(snode);
+    /* UI controls are pixel aligned; keep connection anchors on the exact node-space grid. */
+    for (bNodeSocket *socket : node.input_sockets()) {
+      if (socket->is_visible()) {
+        socket->runtime->location.x = origin.x;
+        socket->runtime->location.y = origin.y + layout::snap_coordinate(
+                                                     socket->runtime->location.y - origin.y, step);
+      }
+    }
+    for (bNodeSocket *socket : node.output_sockets()) {
+      if (socket->is_visible()) {
+        socket->runtime->location.x = origin.x + NODE_WIDTH(node);
+        socket->runtime->location.y = origin.y + layout::snap_coordinate(
+                                                     socket->runtime->location.y - origin.y, step);
+      }
+    }
+  }
 
   /* Set the block bounds to clip mouse events from underlying nodes.
    * Add a margin for sockets on each side. */
@@ -1876,6 +1925,7 @@ static void node_draw_sockets(const bContext &C,
       const_cast<ID *>(&ntree.id), RNA_Node, const_cast<bNode *>(&node));
 
   const float outline_thickness = NODE_SOCKET_OUTLINE;
+  const bNodeSocket *inspected_socket = node_socket_inspection_get(snode);
 
   nodesocket_batch_start();
   /* Input sockets. */
@@ -1883,7 +1933,7 @@ static void node_draw_sockets(const bContext &C,
     if (!sock->is_icon_visible()) {
       continue;
     }
-    const bool selected = (sock->flag & SELECT);
+    const bool selected = (sock->flag & SELECT) || sock == inspected_socket;
     node_draw_socket(
         C, ntree, node, nodeptr, block, *sock, outline_thickness, selected, snode.runtime->aspect);
   }
@@ -1893,7 +1943,7 @@ static void node_draw_sockets(const bContext &C,
     if (!sock->is_icon_visible()) {
       continue;
     }
-    const bool selected = (sock->flag & SELECT);
+    const bool selected = (sock->flag & SELECT) || sock == inspected_socket;
     node_draw_socket(
         C, ntree, node, nodeptr, block, *sock, outline_thickness, selected, snode.runtime->aspect);
   }
@@ -3606,6 +3656,15 @@ static void node_update_nodetree(const bContext &C,
   for (const int i : nodes.index_range()) {
     bNode &node = *nodes[i];
     ui::Block &block = *blocks[node.index()];
+    node.runtime->grid_layout_width = 0.0f;
+    if ((snode->node_layout_flag & SNODE_LAYOUT_SOCKET_GRID) && !node.is_frame() &&
+        !node.is_reroute() && !(node.flag & NODE_COLLAPSED))
+    {
+      node.runtime->grid_layout_width = layout::grid_width(
+                                            node.width,
+                                            layout::grid_spacing(snode->node_grid_spacing)) *
+                                        UI_SCALE_FAC;
+    }
     if (node.is_frame()) {
       /* Frame sizes are calculated after all other nodes have calculating their #draw_bounds. */
       continue;
@@ -4753,7 +4812,33 @@ void node_draw_space(const bContext &C, ARegion &region)
   snode_set_context(C);
 
   const int grid_levels = ui::theme::get_value_type(TH_NODE_GRID_LEVELS, SPACE_NODE);
-  ui::view2d_dot_grid_draw(&v2d, TH_GRID, NODE_GRID_STEP_SIZE, grid_levels);
+  ui::view2d_dot_grid_draw(&v2d, TH_GRID, grid_size_get(snode), grid_levels);
+
+  if ((snode.node_layout_flag & SNODE_LAYOUT_SMART_GUIDES) &&
+      (snode.overlay.flag & SN_OVERLAY_SHOW_OVERLAYS))
+  {
+    const std::optional<float> x = snode.runtime->alignment_guide_x;
+    const std::optional<float> y = snode.runtime->alignment_guide_y;
+    if (x || y) {
+      float color[4];
+      ui::theme::get_color_4fv(TH_ACTIVE, color);
+      const uint pos = GPU_vertformat_attr_add(
+          immVertexFormat(), "pos", gpu::VertAttrType::SFLOAT_32_32);
+      immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
+      immUniformColor4fv(color);
+      immBegin(GPU_PRIM_LINES, 2 * (int(x.has_value()) + int(y.has_value())));
+      if (x) {
+        immVertex2f(pos, *x, v2d.cur.ymin);
+        immVertex2f(pos, *x, v2d.cur.ymax);
+      }
+      if (y) {
+        immVertex2f(pos, v2d.cur.xmin, *y);
+        immVertex2f(pos, v2d.cur.xmax, *y);
+      }
+      immEnd();
+      immUnbindProgram();
+    }
+  }
 
   /* Draw parent node trees. */
   if (snode.treepath.last) {

@@ -11,7 +11,11 @@ O histórico original, os créditos e as licenças foram preservados.
 - [Mapa inicial do código e critérios para modificações](mixer/ARCHITECTURE.md)
 - [Registro da preparação e validações](mixer/SETUP_STATUS.md)
 
-O projeto está em preparação: ainda não contém as funcionalidades específicas do Mixer.
+A primeira implementação acrescenta ferramentas de organização no editor de nós:
+coordenadas do socket ou Reroute clicado no painel `N`, grade configurável,
+layout opcional dos sockets na grade e guias de alinhamento com nós vizinhos.
+Veja [uso, testes e limites atuais](mixer/NODE_LAYOUT_TOOLS.md).
+
 A documentação original do Blender segue abaixo.
 
 ---

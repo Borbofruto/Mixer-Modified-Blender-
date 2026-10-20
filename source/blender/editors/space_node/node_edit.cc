@@ -54,7 +54,8 @@
 #include "RE_pipeline.h"
 
 #include "ED_image.hh"
-#include "ED_node.hh" /* own include */
+#include "ED_node.hh"
+#include "ED_node_layout.hh" /* own include */
 #include "ED_render.hh"
 #include "ED_screen.hh"
 #include "ED_viewer_path.hh"
@@ -513,15 +514,10 @@ wmKeyMap *node_resize_modal_keymap(wmKeyConfig *keyconf)
   return keymap;
 }
 
-float nearest_node_grid_coord(float co)
+float nearest_node_grid_coord(const float co, const SpaceNode *snode)
 {
-  /* Size and location of nodes are independent of UI scale, so grid size should be independent of
-   * UI scale as well. */
-  float grid_size = NODE_GRID_UNIT;
-  float rest = fmod(co, grid_size);
-  float offset = rest - grid_size / 2 >= 0 ? grid_size : 0;
-
-  return co - rest + offset;
+  const float step = snode ? layout::grid_spacing(snode->node_grid_spacing) : NODE_GRID_UNIT;
+  return layout::snap_coordinate(co, step);
 }
 
 static wmOperatorStatus node_resize_modal(bContext *C, wmOperator *op, const wmEvent *event)
@@ -570,7 +566,7 @@ static wmOperatorStatus node_resize_modal(bContext *C, wmOperator *op, const wmE
             *pwidth = oldwidth + dx;
 
             if (nsw->snap_to_grid) {
-              *pwidth = nearest_node_grid_coord(*pwidth);
+              *pwidth = nearest_node_grid_coord(*pwidth, snode);
             }
             CLAMP(*pwidth, widthmin, widthmax);
           }
@@ -579,7 +575,7 @@ static wmOperatorStatus node_resize_modal(bContext *C, wmOperator *op, const wmE
             *pwidth = oldwidth - dx;
 
             if (nsw->snap_to_grid) {
-              *pwidth = nearest_node_grid_coord(*pwidth);
+              *pwidth = nearest_node_grid_coord(*pwidth, snode);
             }
             CLAMP(*pwidth, widthmin, widthmax);
             node->location[0] = locmax - *pwidth;
@@ -595,7 +591,7 @@ static wmOperatorStatus node_resize_modal(bContext *C, wmOperator *op, const wmE
             *pheight = rd.oldheight + dy;
 
             if (nsw->snap_to_grid) {
-              *pheight = nearest_node_grid_coord(*pheight);
+              *pheight = nearest_node_grid_coord(*pheight, snode);
             }
             CLAMP(*pheight, heightmin, heightmax);
             node->location[1] = locmin + *pheight;
@@ -604,7 +600,7 @@ static wmOperatorStatus node_resize_modal(bContext *C, wmOperator *op, const wmE
             *pheight = rd.oldheight - dy;
 
             if (nsw->snap_to_grid) {
-              *pheight = nearest_node_grid_coord(*pheight);
+              *pheight = nearest_node_grid_coord(*pheight, snode);
             }
             CLAMP(*pheight, heightmin, heightmax);
           }
