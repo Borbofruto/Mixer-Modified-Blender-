@@ -270,7 +270,8 @@ static void node_group_ungroup(bContext &C, bNodeTree &ntree, bNode &group_node)
         }
         return true;
       },
-      ntree);
+      ntree,
+      node_grid_spacing_get(*CTX_wm_space_node(&C)));
   const InterfaceProxyNodes proxy_nodes = connect_copied_nodes_to_external_sockets(
       C, ngroup, copied_nodes, io_mapping, &group_node);
 
@@ -365,8 +366,12 @@ void NODE_OT_group_ungroup(wmOperatorType *ot)
 /**
  * \return True if successful.
  */
-static bool node_group_separate_selected(
-    Main &bmain, bNodeTree &ntree, bNodeTree &ngroup, const float2 &offset, const bool make_copy)
+static bool node_group_separate_selected(Main &bmain,
+                                         bNodeTree &ntree,
+                                         bNodeTree &ngroup,
+                                         const float2 &offset,
+                                         const bool make_copy,
+                                         const float grid_step)
 {
   node_deselect_all(ntree);
 
@@ -376,7 +381,7 @@ static bool node_group_separate_selected(
       [](const bNode *node) { return node->is_group_input() || node->is_group_output(); });
 
   NodeSetCopy copied_nodes = NodeSetCopy::from_nodes(
-      bmain, ngroup, nodes_to_move.as_span(), ntree);
+      bmain, ngroup, nodes_to_move.as_span(), ntree, grid_step);
   for (bNode *node : copied_nodes.node_map().values()) {
     node->location[0] += offset[0];
     node->location[1] += offset[1];
@@ -424,13 +429,17 @@ static wmOperatorStatus node_group_separate_exec(bContext *C, wmOperator *op)
 
   switch (type) {
     case NODE_GS_COPY:
-      if (!node_group_separate_selected(*bmain, *nparent, *ngroup, offset, true)) {
+      if (!node_group_separate_selected(
+              *bmain, *nparent, *ngroup, offset, true, node_grid_spacing_get(*snode)))
+      {
         BKE_report(op->reports, RPT_WARNING, "Cannot separate nodes");
         return OPERATOR_CANCELLED;
       }
       break;
     case NODE_GS_MOVE:
-      if (!node_group_separate_selected(*bmain, *nparent, *ngroup, offset, false)) {
+      if (!node_group_separate_selected(
+              *bmain, *nparent, *ngroup, offset, false, node_grid_spacing_get(*snode)))
+      {
         BKE_report(op->reports, RPT_WARNING, "Cannot separate nodes");
         return OPERATOR_CANCELLED;
       }
@@ -607,7 +616,8 @@ static void node_group_make_insert_selected(const bContext &C,
 
   /* Copy nodes into the group. */
   node_deselect_all(group);
-  const NodeSetCopy copied_nodes = NodeSetCopy::from_nodes(bmain, ntree, nodes, group);
+  const NodeSetCopy copied_nodes = NodeSetCopy::from_nodes(
+      bmain, ntree, nodes, group, node_grid_spacing_get(*CTX_wm_space_node(&C)));
   /* Connect exposed sockets to group input/output nodes. */
   connect_copied_nodes_to_interface(C, copied_nodes, io_mapping);
 
@@ -636,14 +646,16 @@ static bNode *node_group_make_from_nodes(const bContext &C,
   /* New node-tree. */
   bNodeTree *ngroup = bke::node_tree_add_tree(bmain, "NodeGroup", ntreetype);
   BKE_id_move_to_same_lib(*bmain, ngroup->id, ntree.id);
+  ngroup->use_socket_grid_layout = ntree.use_socket_grid_layout;
+  ngroup->socket_grid_spacing = node_grid_spacing_get(*CTX_wm_space_node(&C));
 
   /* make group node */
   bNode *gnode = bke::node_add_node(&C, ntree, ntype);
   gnode->id = id_cast<ID *>(ngroup);
 
   if (const std::optional<Bounds<float2>> bounds = node_location_bounds(nodes_to_group)) {
-    gnode->location[0] = nearest_node_grid_coord(bounds->center()[0]);
-    gnode->location[1] = nearest_node_grid_coord(bounds->center()[1]);
+    gnode->location[0] = nearest_node_grid_coord(bounds->center()[0], CTX_wm_space_node(&C));
+    gnode->location[1] = nearest_node_grid_coord(bounds->center()[1], CTX_wm_space_node(&C));
   }
   if (bNode *parent = ed::space_node::find_common_parent_node(nodes_to_group)) {
     gnode->parent = parent;
@@ -664,6 +676,8 @@ static bNode *node_group_make_from_node_declaration(bContext &C,
   bNodeTree *wrapper_group = bke::node_tree_add_tree(
       &bmain, bke::node_label(ntree, src_node), ntree.idname);
   wrapper_group->color_tag = int(bke::node_color_tag(src_node));
+  wrapper_group->use_socket_grid_layout = ntree.use_socket_grid_layout;
+  wrapper_group->socket_grid_spacing = node_grid_spacing_get(*CTX_wm_space_node(&C));
   if (!src_node.is_reroute()) {
     wrapper_group->default_group_node_width = src_node.width;
   }
@@ -677,7 +691,7 @@ static bNode *node_group_make_from_node_declaration(bContext &C,
       params, src_node, *wrapper_group);
 
   const NodeSetCopy copied_nodes = NodeSetCopy::from_nodes(
-      bmain, ntree, {&src_node}, *wrapper_group);
+      bmain, ntree, {&src_node}, *wrapper_group, node_grid_spacing_get(*CTX_wm_space_node(&C)));
   connect_copied_nodes_to_interface(C, copied_nodes, io_mapping);
 
   BKE_main_ensure_invariants(bmain, wrapper_group->id);

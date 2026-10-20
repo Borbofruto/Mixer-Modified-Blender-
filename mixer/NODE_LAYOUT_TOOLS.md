@@ -27,8 +27,13 @@ anterior. A inspeção não é salva como ponteiro no `.blend`.
 
 Em **Layout**, ajuste **Grid Spacing** entre 4 e 200 unidades, incluindo valores
 fracionários. A grade desenhada, o snap de movimento e o snap de redimensionamento
-usam o mesmo passo. Arquivos antigos sem esse campo continuam usando 20 unidades.
-As opções do editor são salvas no `.blend`.
+usam o mesmo passo. Colagem com snap e normalização ao criar/separar grupos
+também recebem o espaçamento configurado. Arquivos antigos sem esse campo continuam usando 20 unidades.
+As opções são salvas no `.blend`. Com Socket Grid desligado, o passo é local ao
+editor. Com ele ligado, o modo e seu passo pertencem à árvore: duas vistas da mesma
+árvore usam a mesma geometria de sockets. Guias continuam sendo uma opção de cada
+editor. Ativar o modo exige uma árvore editável; dados vinculados somente para
+leitura podem ser inspecionados, mas seu layout não é reescrito.
 
 **Socket Grid** acrescenta espaço entre linhas de controles de nós expandidos
 para posicionar os centros dos sockets em múltiplos do passo, em relação à origem
@@ -67,7 +72,8 @@ concluir ou cancelar o movimento. O botão geral de overlays controla seu desenh
   terminações de links dentro do mesmo socket continua sendo o do Blender.
 - As coordenadas de sockets dependem do layout calculado pelo editor aberto;
   não constituem uma propriedade geométrica disponível sem desenhar a árvore.
-- A validação visual com dois editores da mesma árvore usando grades diferentes,
+- O teste de API cobre duas vistas compartilhando o layout de uma árvore e
+  vistas independentes quando o modo está desligado. A validação visual de
   painéis recolhidos, nós altos e múltiplas entradas ainda precisa ser executada.
 
 Os testes C++ em `mixer/tests` verificam posições negativas, valores inválidos,

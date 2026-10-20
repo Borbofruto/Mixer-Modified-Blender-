@@ -35,6 +35,7 @@
 #include "DEG_depsgraph_build.hh"
 
 #include "ED_node.hh"
+#include "ED_node_layout.hh"
 #include "ED_node_preview.hh"
 #include "ED_render.hh"
 #include "ED_screen.hh"
@@ -705,7 +706,8 @@ const Map<int32_t, int32_t> &NodeSetCopy::node_identifier_map() const
 NodeSetCopy NodeSetCopy::from_nodes(Main &bmain,
                                     const bNodeTree &src_tree,
                                     const Span<const bNode *> src_nodes,
-                                    bNodeTree &dst_tree)
+                                    bNodeTree &dst_tree,
+                                    const float grid_step)
 {
   const SocketLinkMap links_by_socket = get_links_by_to_socket(dst_tree);
 
@@ -767,8 +769,8 @@ NodeSetCopy NodeSetCopy::from_nodes(Main &bmain,
   if (const std::optional<Bounds<float2>> bounds = node_location_bounds(src_nodes)) {
     float2 center = bounds->center();
     /* Round offset to a grid step, so grid-aligned nodes remain grid-aligned. */
-    center[0] = nearest_node_grid_coord(center[0]);
-    center[1] = nearest_node_grid_coord(center[1]);
+    center[0] = layout::snap_coordinate(center[0], layout::grid_spacing(grid_step));
+    center[1] = layout::snap_coordinate(center[1], layout::grid_spacing(grid_step));
     for (bNode *node : new_nodes) {
       node->location[0] -= center[0];
       node->location[1] -= center[1];
@@ -781,7 +783,8 @@ NodeSetCopy NodeSetCopy::from_nodes(Main &bmain,
 NodeSetCopy NodeSetCopy::from_predicate(Main &bmain,
                                         const bNodeTree &src_tree,
                                         FunctionRef<bool(const bNode &node)> node_predicate,
-                                        bNodeTree &dst_tree)
+                                        bNodeTree &dst_tree,
+                                        const float grid_step)
 {
   Vector<const bNode *> nodes;
   for (const bNode &node : src_tree.nodes) {
@@ -789,7 +792,7 @@ NodeSetCopy NodeSetCopy::from_predicate(Main &bmain,
       nodes.append(&node);
     }
   }
-  return from_nodes(bmain, src_tree, nodes, dst_tree);
+  return from_nodes(bmain, src_tree, nodes, dst_tree, grid_step);
 }
 
 GroupInputOutputNodes connect_copied_nodes_to_interface(const bContext &C,
@@ -858,13 +861,15 @@ GroupInputOutputNodes connect_copied_nodes_to_interface(const bContext &C,
     nodes_vec.append(node);
   }
   if (const std::optional<Bounds<float2>> bounds = node_bounds(nodes_vec)) {
-    /* 3 grid units apart from the bounds, accounting for the width of the Group Input node. */
-    io_nodes.input_node->location[0] = bounds->min[0] - 200.0f;
-    io_nodes.output_node->location[0] = bounds->max[0] + 60.0f;
+    /* Keep a margin from the bounds and align the new IO node origins to the editor grid. */
+    io_nodes.input_node->location[0] = nearest_node_grid_coord(bounds->min[0] - 200.0f,
+                                                               CTX_wm_space_node(&C));
+    io_nodes.output_node->location[0] = nearest_node_grid_coord(bounds->max[0] + 60.0f,
+                                                                CTX_wm_space_node(&C));
   }
   /* Ignore node dimensions for vertical placement. */
   if (const std::optional<Bounds<float2>> bounds = node_location_bounds(nodes_vec)) {
-    float center_y_snap = nearest_node_grid_coord(bounds->center()[1]);
+    float center_y_snap = nearest_node_grid_coord(bounds->center()[1], CTX_wm_space_node(&C));
     io_nodes.input_node->location[1] = center_y_snap;
     io_nodes.output_node->location[1] = center_y_snap;
   }

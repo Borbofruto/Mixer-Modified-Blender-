@@ -1923,6 +1923,11 @@ struct bNodeTree {
    */
   int default_group_node_width = 0;
 
+  /** Socket geometry is shared by all editors displaying this tree. */
+  float socket_grid_spacing = 0.0f;
+  uint8_t use_socket_grid_layout = 0;
+  char _pad_socket_grid[3] = {};
+
   rctf viewer_border = {};
 
   /**

@@ -713,6 +713,7 @@ static const EnumPropertyItem spreadsheet_table_id_type_items[] = {
 #  include "BKE_layer.hh"
 #  include "BKE_lib_id.hh"
 #  include "BKE_main.hh"
+#  include "BKE_library.hh"
 #  include "BKE_nla.hh"
 #  include "BKE_node.hh"
 #  include "BKE_paint.hh"
@@ -2976,7 +2977,42 @@ static bool rna_SpaceNodeEditor_tree_type_poll(void *Cv, bke::bNodeTreeType *typ
 
 static float rna_SpaceNodeEditor_grid_spacing_get(PointerRNA *ptr)
 {
-  return ed::space_node::layout::grid_spacing(ptr->data_as<SpaceNode>()->node_grid_spacing);
+  return ed::space_node::node_grid_spacing_get(*ptr->data_as<SpaceNode>());
+}
+
+static void rna_SpaceNodeEditor_grid_spacing_set(PointerRNA *ptr, const float value)
+{
+  ed::space_node::node_grid_spacing_set(*ptr->data_as<SpaceNode>(), value);
+}
+
+static bool rna_SpaceNodeEditor_socket_grid_get(PointerRNA *ptr)
+{
+  return ed::space_node::socket_grid_layout_enabled(*ptr->data_as<SpaceNode>());
+}
+
+static void rna_SpaceNodeEditor_socket_grid_set(PointerRNA *ptr, const bool enabled)
+{
+  ed::space_node::socket_grid_layout_set(*ptr->data_as<SpaceNode>(), enabled);
+}
+
+static int rna_SpaceNodeEditor_socket_grid_editable(const PointerRNA *ptr, const char **r_info)
+{
+  const SpaceNode &snode = *ptr->data_as<SpaceNode>();
+  if (!snode.edittree || !ID_IS_EDITABLE(&snode.edittree->id)) {
+    if (r_info) {
+      *r_info = N_("Socket layout requires an editable node tree");
+    }
+    return 0;
+  }
+  return PROP_EDITABLE;
+}
+
+static int rna_SpaceNodeEditor_grid_spacing_editable(const PointerRNA *ptr, const char **r_info)
+{
+  if (!ed::space_node::socket_grid_layout_enabled(*ptr->data_as<SpaceNode>())) {
+    return PROP_EDITABLE;
+  }
+  return rna_SpaceNodeEditor_socket_grid_editable(ptr, r_info);
 }
 
 static PointerRNA rna_SpaceNodeEditor_inspected_socket_get(PointerRNA *ptr)
@@ -8656,7 +8692,11 @@ static void rna_def_space_node(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "node_grid_spacing", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, nullptr, "node_grid_spacing");
-  RNA_def_property_float_funcs(prop, "rna_SpaceNodeEditor_grid_spacing_get", nullptr, nullptr);
+  RNA_def_property_float_funcs(prop,
+                               "rna_SpaceNodeEditor_grid_spacing_get",
+                               "rna_SpaceNodeEditor_grid_spacing_set",
+                               nullptr);
+  RNA_def_property_editable_func(prop, "rna_SpaceNodeEditor_grid_spacing_editable");
   RNA_def_property_float_default(prop, ed::space_node::layout::default_grid_spacing);
   RNA_def_property_range(
       prop, ed::space_node::layout::min_grid_spacing, ed::space_node::layout::max_grid_spacing);
@@ -8664,7 +8704,9 @@ static void rna_def_space_node(BlenderRNA *brna)
   RNA_def_property_update(prop, NC_SPACE | ND_SPACE_NODE, nullptr);
 
   prop = RNA_def_property(srna, "use_socket_grid_layout", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, nullptr, "node_layout_flag", SNODE_LAYOUT_SOCKET_GRID);
+  RNA_def_property_boolean_funcs(
+      prop, "rna_SpaceNodeEditor_socket_grid_get", "rna_SpaceNodeEditor_socket_grid_set");
+  RNA_def_property_editable_func(prop, "rna_SpaceNodeEditor_socket_grid_editable");
   RNA_def_property_ui_text(
       prop,
       "Socket Grid Layout",

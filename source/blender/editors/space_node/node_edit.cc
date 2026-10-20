@@ -516,7 +516,7 @@ wmKeyMap *node_resize_modal_keymap(wmKeyConfig *keyconf)
 
 float nearest_node_grid_coord(const float co, const SpaceNode *snode)
 {
-  const float step = snode ? layout::grid_spacing(snode->node_grid_spacing) : NODE_GRID_UNIT;
+  const float step = snode ? node_grid_spacing_get(*snode) : NODE_GRID_UNIT;
   return layout::snap_coordinate(co, step);
 }
 

@@ -180,9 +180,50 @@ struct TreeDrawContext {
   }
 };
 
+bool socket_grid_layout_enabled(const SpaceNode &snode)
+{
+  return snode.edittree && snode.edittree->use_socket_grid_layout;
+}
+
+float node_grid_spacing_get(const SpaceNode &snode)
+{
+  return layout::grid_spacing(socket_grid_layout_enabled(snode) ?
+                                  snode.edittree->socket_grid_spacing :
+                                  snode.node_grid_spacing);
+}
+
+void node_grid_spacing_set(SpaceNode &snode, const float spacing)
+{
+  const float value = layout::grid_spacing(spacing);
+  snode.node_grid_spacing = value;
+  if (socket_grid_layout_enabled(snode) && ID_IS_EDITABLE(&snode.edittree->id)) {
+    snode.edittree->socket_grid_spacing = value;
+  }
+}
+
+void socket_grid_layout_set(SpaceNode &snode, const bool enabled)
+{
+  if (!snode.edittree || !ID_IS_EDITABLE(&snode.edittree->id)) {
+    return;
+  }
+  const float spacing = node_grid_spacing_get(snode);
+  if (enabled) {
+    snode.edittree->socket_grid_spacing = spacing;
+  }
+  else {
+    snode.node_grid_spacing = spacing;
+  }
+  snode.edittree->use_socket_grid_layout = enabled;
+}
+
 float grid_size_get(const SpaceNode &snode)
 {
-  return layout::grid_spacing(snode.node_grid_spacing) * UI_SCALE_FAC;
+  return node_grid_spacing_get(snode) * UI_SCALE_FAC;
+}
+
+static float socket_grid_size_get(const bNodeTree &ntree)
+{
+  return layout::grid_spacing(ntree.socket_grid_spacing) * UI_SCALE_FAC;
 }
 
 void node_alignment_guides_set(SpaceNode &snode,
@@ -507,11 +548,10 @@ static bool node_update_basis_socket(TreeDrawContext &tree_draw_ctx,
                                               0.0f;
   locy -= multi_input_socket_offset * 0.5f;
 
-  const SpaceNode &snode = *CTX_wm_space_node(&C);
-  const bool socket_grid = snode.node_layout_flag & SNODE_LAYOUT_SOCKET_GRID;
+  const bool socket_grid = ntree.use_socket_grid_layout;
   const float2 node_origin = node_to_view(node.location);
   const float socket_y = socket_grid ? layout::socket_row_y(
-                                           locy, node_origin.y, grid_size_get(snode), NODE_DYS) :
+                                           locy, node_origin.y, socket_grid_size_get(ntree), NODE_DYS) :
                                        round(locy - NODE_DYS);
   if (socket_grid) {
     locy = int(std::round(socket_y + NODE_DYS));
@@ -1209,11 +1249,10 @@ static void node_update_basis_from_declaration(TreeDrawContext &tree_draw_ctx,
             const nodes::PanelDeclaration &node_decl = *item.decl;
             bke::bNodePanelRuntime &panel_runtime = node.runtime->panels[node_decl.index];
             const float panel_header_height = NODE_DYS;
-            const SpaceNode &snode = *CTX_wm_space_node(&C);
-            if (snode.node_layout_flag & SNODE_LAYOUT_SOCKET_GRID) {
+            if (ntree.use_socket_grid_layout) {
               const float center = layout::socket_row_y(locy,
                                                         node_to_view(node.location).y,
-                                                        grid_size_get(snode),
+                                                        socket_grid_size_get(ntree),
                                                         panel_header_height / 2);
               locy = int(std::round(center + panel_header_height / 2));
             }
@@ -1339,10 +1378,9 @@ static void node_update_basis(const bContext &C,
   node.runtime->draw_bounds.ymax = loc.y;
   node.runtime->draw_bounds.ymin = min_ff(dy, loc.y - 2 * NODE_DY);
 
-  const SpaceNode &snode = *CTX_wm_space_node(&C);
-  if (snode.node_layout_flag & SNODE_LAYOUT_SOCKET_GRID) {
+  if (ntree.use_socket_grid_layout) {
     const float2 origin = node_to_view(node.location);
-    const float step = grid_size_get(snode);
+    const float step = socket_grid_size_get(ntree);
     /* UI controls are pixel aligned; keep connection anchors on the exact node-space grid. */
     for (bNodeSocket *socket : node.input_sockets()) {
       if (socket->is_visible()) {
@@ -3657,12 +3695,11 @@ static void node_update_nodetree(const bContext &C,
     bNode &node = *nodes[i];
     ui::Block &block = *blocks[node.index()];
     node.runtime->grid_layout_width = 0.0f;
-    if ((snode->node_layout_flag & SNODE_LAYOUT_SOCKET_GRID) && !node.is_frame() &&
-        !node.is_reroute() && !(node.flag & NODE_COLLAPSED))
+    if (ntree.use_socket_grid_layout && !node.is_frame() && !node.is_reroute() &&
+        !(node.flag & NODE_COLLAPSED))
     {
-      node.runtime->grid_layout_width = layout::grid_width(
-                                            node.width,
-                                            layout::grid_spacing(snode->node_grid_spacing)) *
+      node.runtime->grid_layout_width = layout::grid_width(node.width,
+                                                           layout::grid_spacing(ntree.socket_grid_spacing)) *
                                         UI_SCALE_FAC;
     }
     if (node.is_frame()) {

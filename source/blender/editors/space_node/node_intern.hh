@@ -780,11 +780,13 @@ class NodeSetCopy {
   static NodeSetCopy from_nodes(Main &bmain,
                                 const bNodeTree &src_tree,
                                 const Span<const bNode *> src_nodes,
-                                bNodeTree &dst_tree);
+                                bNodeTree &dst_tree,
+                                float grid_step);
   static NodeSetCopy from_predicate(Main &bmain,
                                     const bNodeTree &src_tree,
                                     FunctionRef<bool(const bNode &node)> node_predicate,
-                                    bNodeTree &dst_tree);
+                                    bNodeTree &dst_tree,
+                                    float grid_step);
 
  private:
   NodeSetCopy(bNodeTree &tree) : dst_tree_(tree) {}

@@ -27,6 +27,7 @@
 #include "BLI_path_utils.hh"
 
 #include "ED_node.hh"
+#include "ED_node_layout.hh"
 #include "ED_render.hh"
 #include "ED_screen.hh"
 
@@ -57,6 +58,7 @@ static int node_copy_local(bNodeTree &from_tree,
                            const bool do_user_count,
                            const float2 offset,
                            const bool snap_to_grid,
+                           const float grid_step,
                            ReportList *reports)
 {
   node_select_paired(from_tree);
@@ -80,8 +82,10 @@ static int node_copy_local(bNodeTree &from_tree,
       new_node->location[0] += offset.x;
       new_node->location[1] += offset.y;
       if (snap_to_grid) {
-        new_node->location[0] = nearest_node_grid_coord(new_node->location[0]);
-        new_node->location[1] = nearest_node_grid_coord(new_node->location[1]);
+        new_node->location[0] = layout::snap_coordinate(new_node->location[0],
+                                                        layout::grid_spacing(grid_step));
+        new_node->location[1] = layout::snap_coordinate(new_node->location[1],
+                                                        layout::grid_spacing(grid_step));
       }
     }
     else {
@@ -187,7 +191,7 @@ static wmOperatorStatus node_clipboard_copy_exec(bContext *C, wmOperator *op)
   copy_tree->tree_interface.copy_data(node_tree->tree_interface, LIB_ID_COPY_DEFAULT);
 
   const int num_copied = node_copy_local(
-      *node_tree, *copy_tree, true, false, float2(0), false, op->reports);
+      *node_tree, *copy_tree, true, false, float2(0), false, 0.0f, op->reports);
   if (num_copied == 0) {
     return OPERATOR_CANCELLED;
   }
@@ -357,8 +361,14 @@ static wmOperatorStatus node_clipboard_paste_exec(bContext *C, wmOperator *op)
   }
 
   const bool snap_to_grid = CTX_data_scene(C)->toolsettings->snap_flag_node & SCE_SNAP;
-  const int num_copied = node_copy_local(
-      *from_tree, *snode->edittree, false, true, offset, snap_to_grid, op->reports);
+  const int num_copied = node_copy_local(*from_tree,
+                                         *snode->edittree,
+                                         false,
+                                         true,
+                                         offset,
+                                         snap_to_grid,
+                                         node_grid_spacing_get(*snode),
+                                         op->reports);
   if (num_copied == 0) {
     /* Note: we don't return OPERATOR_CANCELLED here although the copy fails to avoid corrupting
      * the undo stack after merging two bmains. */

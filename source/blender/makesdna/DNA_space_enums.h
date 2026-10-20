@@ -886,7 +886,6 @@ enum eSpaceNodeOverlay_Flag : int {
 ENUM_OPERATORS(eSpaceNodeOverlay_Flag)
 
 enum eSpaceNodeLayout_Flag : int {
-  SNODE_LAYOUT_SOCKET_GRID = (1 << 0),
   SNODE_LAYOUT_SMART_GUIDES = (1 << 1),
 };
 

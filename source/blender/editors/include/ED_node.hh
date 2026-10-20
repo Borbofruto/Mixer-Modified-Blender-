@@ -52,6 +52,12 @@ namespace ed::space_node {
 
 void tree_update(const bContext *C);
 
+/** Shared tree spacing while socket-grid layout is enabled, otherwise editor-local spacing. */
+float node_grid_spacing_get(const SpaceNode &snode);
+void node_grid_spacing_set(SpaceNode &snode, float spacing);
+bool socket_grid_layout_enabled(const SpaceNode &snode);
+void socket_grid_layout_set(SpaceNode &snode, bool enabled);
+
 /** Grid spacing in view coordinates, including UI scale. */
 float grid_size_get(const SpaceNode &snode);
 
