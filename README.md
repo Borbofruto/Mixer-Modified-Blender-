@@ -1,3 +1,20 @@
+# Mixer — Modified Blender
+
+Versão modificada do Blender mantida por Gabriel Webber do Nascimento.
+
+A base inicial é o **Blender 5.2.2 LTS**, tag `v5.2.2`, commit
+`d13f752e3b9c4f8c261cda552b1021f8bcc0382c`, obtida do
+[espelho oficial no GitHub](https://github.com/blender/blender).
+O histórico original, os créditos e as licenças foram preservados.
+
+- [Preparação e compilação no Windows](mixer/BUILD_WINDOWS.md)
+- [Mapa inicial do código e critérios para modificações](mixer/ARCHITECTURE.md)
+- [Registro da preparação e validações](mixer/SETUP_STATUS.md)
+
+O projeto está em preparação: ainda não contém as funcionalidades específicas do Mixer.
+A documentação original do Blender segue abaixo.
+
+---
 <!--
 Keep this document short & concise,
 linking to external resources instead of including content in-line.
