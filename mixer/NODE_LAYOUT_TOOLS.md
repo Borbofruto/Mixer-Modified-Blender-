@@ -87,6 +87,14 @@ cmake --build build/layout-tests --config Release
 ctest --test-dir build/layout-tests -C Release --output-on-failure
 ```
 
-`node_layout_api_test.py` verifica as propriedades, limites e gravação/reabertura
-no executável compilado. Ele ainda não foi executado enquanto o executável completo
-não estiver disponível. Essa distinção também está no registro de preparação.
+`node_layout_api_test.py` passou no executável compilado: propriedades, limites,
+snap com e sem ímã, agrupamento, compartilhamento entre vistas, árvores vinculadas
+somente para leitura e gravação/reabertura. Exige uma janela inicializada, pois no
+modo `--background` a escala de interface do Blender é zero. Execute da raiz:
+
+```powershell
+& ./build/windows/bin/Release/blender.exe --factory-startup --python-exit-code 1 --python mixer/tests/node_layout_api_test.py
+```
+
+O teste usa configurações de fábrica, grava somente em `build/layout-tests` e
+encerra sua janela. Ele não substitui a validação visual dos cliques e guias.

@@ -1,7 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Run with the compiled Mixer, using --background --factory-startup --python."""
+"""Run with Mixer --factory-startup --python-exit-code 1 --python <this file>.
+
+Requires a window: background mode leaves Blender UI scale at zero.
+The test closes its window after completion and never saves user preferences.
+"""
 from pathlib import Path
 import bpy
+
+assert not bpy.app.background, "Node transform tests require initialized window DPI"
+assert bpy.context.preferences.system.ui_scale > 0.0
 
 root = Path(__file__).resolve().parents[2]
 output = root / "build" / "layout-tests" / "settings_roundtrip.blend"
@@ -103,3 +110,10 @@ assert snode.use_socket_grid_layout
 assert snode.use_node_alignment_guides
 assert snode.inspected_socket is None, "Reloaded editors start without an inspection target"
 print("MIXER_NODE_LAYOUT_API_OK")
+
+
+def quit_after_test():
+    bpy.ops.wm.quit_blender()
+
+
+bpy.app.timers.register(quit_after_test, first_interval=0.2)
